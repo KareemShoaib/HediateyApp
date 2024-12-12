@@ -47,6 +47,28 @@ class LoginScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Welcome Text and Gift Icon
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.card_giftcard,
+                  color: Colors.white,
+                  size: 30,
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  'Welcome to Hedieaty',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+
             // Email Field
             TextFormField(
               controller: emailController,

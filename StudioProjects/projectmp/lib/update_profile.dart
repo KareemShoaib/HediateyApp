@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-class UpdateProfilePage extends StatelessWidget {
-  const UpdateProfilePage({Key? key}) : super(key: key);
+class UpdatePasswordPage extends StatelessWidget {
+  const UpdatePasswordPage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final TextEditingController emailController = TextEditingController();
     final TextEditingController passwordController = TextEditingController();
+    final TextEditingController confirmPasswordController = TextEditingController();
+    final TextEditingController currentPasswordController = TextEditingController();
 
-    Future<void> _updateEmail() async {
+    Future<void> _reauthenticateAndChangePassword() async {
       try {
         final User? user = FirebaseAuth.instance.currentUser;
         if (user == null) {
@@ -19,46 +20,45 @@ class UpdateProfilePage extends StatelessWidget {
           return;
         }
 
-        final String newEmail = emailController.text.trim();
-        if (newEmail.isNotEmpty) {
-          await user.updateEmail(newEmail);
-          await user.sendEmailVerification(); // Optional: Re-verify email
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Email updated successfully!')),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please enter a valid email!')),
-          );
-        }
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update email: $e')),
-        );
-      }
-    }
-
-    Future<void> _updatePassword() async {
-      try {
-        final User? user = FirebaseAuth.instance.currentUser;
-        if (user == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No user is logged in!')),
-          );
-          return;
-        }
-
+        final String currentPassword = currentPasswordController.text.trim();
         final String newPassword = passwordController.text.trim();
-        if (newPassword.isNotEmpty && newPassword.length >= 6) {
-          await user.updatePassword(newPassword);
+        final String confirmPassword = confirmPasswordController.text.trim();
+
+        if (currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Password updated successfully!')),
+            const SnackBar(content: Text('All fields are required!')),
           );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Password must be at least 6 characters!')),
-          );
+          return;
         }
+
+        if (newPassword.length < 6) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Password must be at least 6 characters long!')),
+          );
+          return;
+        }
+
+        if (newPassword != confirmPassword) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Passwords do not match!')),
+          );
+          return;
+        }
+
+        // Re-authenticate the user
+        final AuthCredential credential = EmailAuthProvider.credential(
+          email: user.email!,
+          password: currentPassword,
+        );
+
+        await user.reauthenticateWithCredential(credential);
+
+        // If re-authentication is successful, update the password
+        await user.updatePassword(newPassword);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password updated successfully!')),
+        );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update password: $e')),
@@ -68,7 +68,7 @@ class UpdateProfilePage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Update Profile'),
+        title: const Text('Update Password'),
         backgroundColor: Colors.deepPurple[800],
       ),
       body: Padding(
@@ -76,16 +76,17 @@ class UpdateProfilePage extends StatelessWidget {
         child: Column(
           children: [
             const Text(
-              'Update Your Email and Password',
+              'Update Your Password',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 20),
 
-            // Email Field
+            // Current Password Field
             TextField(
-              controller: emailController,
+              controller: currentPasswordController,
+              obscureText: true,
               decoration: InputDecoration(
-                labelText: 'New Email',
+                labelText: 'Current Password',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -97,7 +98,7 @@ class UpdateProfilePage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // Password Field
+            // New Password Field
             TextField(
               controller: passwordController,
               obscureText: true,
@@ -114,26 +115,26 @@ class UpdateProfilePage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // Update Email Button
-            ElevatedButton(
-              onPressed: _updateEmail,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple[700],
-                padding: const EdgeInsets.symmetric(horizontal: 100, vertical: 15),
-                shape: RoundedRectangleBorder(
+            // Confirm Password Field
+            TextField(
+              controller: confirmPasswordController,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Confirm Password',
+                border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.1),
+                labelStyle: const TextStyle(color: Colors.white),
               ),
-              child: const Text(
-                'Update Email',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              style: const TextStyle(color: Colors.white),
             ),
             const SizedBox(height: 16),
 
             // Update Password Button
             ElevatedButton(
-              onPressed: _updatePassword,
+              onPressed: _reauthenticateAndChangePassword,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.deepPurple[700],
                 padding: const EdgeInsets.symmetric(horizontal: 100, vertical: 15),

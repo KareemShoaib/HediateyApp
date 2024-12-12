@@ -1,13 +1,60 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'update_profile.dart'; // Import UpdateProfilePage
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'update_profile.dart';
+import 'mypledgedgifts.dart';
+
+class FirestoreService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Get current user ID
+  String? get userId => _auth.currentUser?.uid;
+
+  // Fetch user's events with gift count
+  Stream<List<Map<String, dynamic>>> getUserEventsWithGiftCount() async* {
+    if (userId == null) throw Exception("User not logged in");
+
+    final eventSnapshots = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('events')
+        .get();
+
+    List<Map<String, dynamic>> events = [];
+
+    for (var doc in eventSnapshots.docs) {
+      final eventId = doc.id;
+      final eventData = doc.data();
+
+      // Count the number of gifts for this event
+      final giftCount = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('events')
+          .doc(eventId)
+          .collection('gifts')
+          .get()
+          .then((giftSnapshot) => giftSnapshot.size);
+
+      events.add({
+        'id': eventId,
+        'name': eventData['name'] ?? 'Unnamed Event',
+        'date': eventData['date'] ?? '',
+        'giftCount': giftCount,
+      });
+    }
+
+    yield events;
+  }
+}
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // Get the currently logged-in user's email
+    final FirestoreService _firestoreService = FirestoreService();
     final User? user = FirebaseAuth.instance.currentUser;
     final String email = user?.email ?? "No email available";
 
@@ -23,7 +70,7 @@ class ProfilePage extends StatelessWidget {
           const SizedBox(height: 16),
           Center(
             child: Text(
-              email, // Display the dynamic email
+              email,
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -41,10 +88,9 @@ class ProfilePage extends StatelessWidget {
               style: TextStyle(color: Colors.white),
             ),
             onTap: () {
-              // Navigate to UpdateProfilePage
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const UpdateProfilePage()),
+                MaterialPageRoute(builder: (context) => const UpdatePasswordPage()),
               );
             },
           ),
@@ -57,7 +103,6 @@ class ProfilePage extends StatelessWidget {
               style: TextStyle(color: Colors.white),
             ),
             onTap: () {
-              // Navigate to notification settings screen
               print("Notification Settings tapped");
             },
           ),
@@ -70,28 +115,45 @@ class ProfilePage extends StatelessWidget {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
           ),
           const SizedBox(height: 16),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: 3, // Replace with the actual number of events
-            itemBuilder: (context, index) {
-              return Card(
-                color: Colors.deepPurple[700],
-                child: ListTile(
-                  title: Text(
-                    "Event ${index + 1}",
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  subtitle: const Text(
-                    "Associated Gifts: 2",
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white),
-                  onTap: () {
-                    // Navigate to the event details page
-                    print("Event ${index + 1} tapped");
-                  },
-                ),
+
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: _firestoreService.getUserEventsWithGiftCount(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              } else if (snapshot.hasError) {
+                return Center(child: Text("Error: ${snapshot.error}"));
+              } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(child: Text("No events created."));
+              }
+
+              final events = snapshot.data!;
+
+              return ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: events.length,
+                itemBuilder: (context, index) {
+                  final event = events[index];
+                  return Card(
+                    color: Colors.deepPurple[700],
+                    child: ListTile(
+                      title: Text(
+                        event['name'],
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      subtitle: Text(
+                        "Associated Gifts: ${event['giftCount']}",
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+                      onTap: () {
+                        // Navigate to event details page or perform another action
+                        print("${event['name']} tapped");
+                      },
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -106,8 +168,10 @@ class ProfilePage extends StatelessWidget {
               style: TextStyle(color: Colors.white),
             ),
             onTap: () {
-              // Navigate to My Pledged Gifts Page
-              print("My Pledged Gifts tapped");
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PledgedGiftsPage()),
+              );
             },
           ),
         ],
