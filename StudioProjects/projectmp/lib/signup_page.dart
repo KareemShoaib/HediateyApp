@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
 import 'login_page.dart'; // Import your login page for navigation
 
 class SignUpPage extends StatelessWidget {
@@ -11,28 +12,63 @@ class SignUpPage extends StatelessWidget {
     final TextEditingController passwordController = TextEditingController();
 
     Future<void> _signup() async {
-      try {
-        final email = emailController.text.trim();
-        final password = passwordController.text.trim();
+      final email = emailController.text.trim();
+      final password = passwordController.text.trim();
 
-        // Attempt Firebase signup
+      if (email.isEmpty || password.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Email and Password cannot be empty')),
+        );
+        return;
+      }
+
+      if (password.length < 6) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password must be at least 6 characters long')),
+        );
+        return;
+      }
+
+      try {
+        // Create user in Firebase Authentication
+        final UserCredential userCredential =
         await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: email,
           password: password,
         );
 
+        // Store user details in Firestore
+        final userId = userCredential.user!.uid;
+        await FirebaseFirestore.instance.collection('users').doc(userId).set({
+          'email': email,
+          'profilePicture': 'https://via.placeholder.com/150', // Default profile picture
+          'createdAt': Timestamp.now(),
+        });
+
         // Show success message and navigate to login page
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Sign Up Successful!')),
         );
+        emailController.clear();
+        passwordController.clear();
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       } catch (e) {
-        // Show an error message if signup fails
+        String errorMessage = 'Sign Up Failed. Please try again.';
+        if (e is FirebaseAuthException) {
+          if (e.code == 'email-already-in-use') {
+            errorMessage = 'This email is already in use.';
+          } else if (e.code == 'weak-password') {
+            errorMessage = 'The password provided is too weak.';
+          } else if (e.code == 'invalid-email') {
+            errorMessage = 'The email provided is invalid.';
+          }
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign Up Failed: $e')),
+          SnackBar(content: Text(errorMessage)),
         );
       }
     }
@@ -49,6 +85,17 @@ class SignUpPage extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Title
+            const Text(
+              'Create Your Account',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // Email Field
             TextFormField(
               controller: emailController,

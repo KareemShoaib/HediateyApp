@@ -12,10 +12,17 @@ class LoginScreen extends StatelessWidget {
     final TextEditingController passwordController = TextEditingController();
 
     Future<void> _login() async {
-      try {
-        final email = emailController.text.trim();
-        final password = passwordController.text.trim();
+      final email = emailController.text.trim();
+      final password = passwordController.text.trim();
 
+      if (email.isEmpty || password.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Email and Password cannot be empty')),
+        );
+        return;
+      }
+
+      try {
         // Firebase authentication for login
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
@@ -23,14 +30,28 @@ class LoginScreen extends StatelessWidget {
         );
 
         // Navigate to WelcomePage on successful login
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Login Successful!')),
+        );
+        emailController.clear();
+        passwordController.clear();
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const WelcomePage()),
         );
       } catch (e) {
-        // Show an error message if login fails
+        String errorMessage = 'Login Failed. Please try again.';
+        if (e is FirebaseAuthException) {
+          if (e.code == 'user-not-found') {
+            errorMessage = 'No user found with this email.';
+          } else if (e.code == 'wrong-password') {
+            errorMessage = 'Incorrect password. Please try again.';
+          } else if (e.code == 'invalid-email') {
+            errorMessage = 'The email provided is invalid.';
+          }
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login Failed: $e')),
+          SnackBar(content: Text(errorMessage)),
         );
       }
     }
