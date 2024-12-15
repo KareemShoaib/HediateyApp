@@ -48,19 +48,6 @@ class FirestoreService {
     });
   }
 
-  // Fetch gifts for a specific event
-  Stream<List<Map<String, dynamic>>> getGifts(String eventId) {
-    if (userId == null) throw Exception("User not logged in");
-    return _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('events')
-        .doc(eventId)
-        .collection('gifts')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
-  }
-
   // Delete a gift
   Future<void> deleteGift(String eventId, String giftId) async {
     if (userId == null) throw Exception("User not logged in");
@@ -72,6 +59,19 @@ class FirestoreService {
         .collection('gifts')
         .doc(giftId)
         .delete();
+  }
+
+  // Fetch gifts for a specific event
+  Stream<List<Map<String, dynamic>>> getGifts(String eventId) {
+    if (userId == null) throw Exception("User not logged in");
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('events')
+        .doc(eventId)
+        .collection('gifts')
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
   }
 }
 
@@ -94,14 +94,9 @@ class _GiftPageState extends State<GiftPage> {
 
         return AlertDialog(
           title: const Text("Add Gift"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: "Gift Name"),
-              ),
-            ],
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(labelText: "Gift Name"),
           ),
           actions: [
             TextButton(
@@ -135,14 +130,9 @@ class _GiftPageState extends State<GiftPage> {
 
         return AlertDialog(
           title: const Text("Edit Gift"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: "Gift Name"),
-              ),
-            ],
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(labelText: "Gift Name"),
           ),
           actions: [
             TextButton(
@@ -231,14 +221,18 @@ class _GiftPageState extends State<GiftPage> {
                   itemCount: gifts.length,
                   itemBuilder: (context, index) {
                     final gift = gifts[index];
+                    final bool isPledged = gift['status'] == 'Pledged';
+
                     return ListTile(
                       leading: Icon(
                         Icons.card_giftcard,
-                        color: gift['isPledged'] ? Colors.green : Colors.red,
+                        color: isPledged ? Colors.green : Colors.red,
                       ),
                       title: Text(gift['name']),
                       subtitle: Text(gift['status']),
-                      trailing: Row(
+                      trailing: isPledged
+                          ? null // If pledged, remove editing and deleting buttons
+                          : Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(

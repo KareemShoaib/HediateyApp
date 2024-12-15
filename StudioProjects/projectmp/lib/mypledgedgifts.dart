@@ -1,67 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+class FirestoreService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Get current user ID
+  String? get userId => _auth.currentUser?.uid;
+
+  // Fetch pledged gifts by the logged-in user
+  Stream<List<Map<String, dynamic>>> getPledgedGiftsByUser() async* {
+    if (userId == null) throw Exception("User not logged in");
+
+    yield* _firestore.collection('users').doc(userId).collection('events').snapshots().asyncMap((eventSnapshots) async {
+      List<Map<String, dynamic>> pledgedGifts = [];
+
+      for (var eventDoc in eventSnapshots.docs) {
+        final eventId = eventDoc.id;
+        final eventName = eventDoc.data()['name'];
+
+        final giftSnapshots = await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('events')
+            .doc(eventId)
+            .collection('gifts')
+            .where('pledgedBy', isEqualTo: userId) // Filter by logged-in user's ID
+            .where('status', isEqualTo: 'Pledged') // Filter by pledged status
+            .get();
+
+        for (var giftDoc in giftSnapshots.docs) {
+          pledgedGifts.add({
+            'name': giftDoc.data()['name'],
+            'event': eventName,
+            'status': giftDoc.data()['status'],
+          });
+        }
+      }
+
+      return pledgedGifts;
+    });
+  }
+}
 
 class PledgedGiftsPage extends StatelessWidget {
-  const PledgedGiftsPage({Key? key}) : super(key: key);
+  final FirestoreService firestoreService = FirestoreService();
+
+  PledgedGiftsPage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // Sample data for pledged gifts
-    final List<Map<String, String>> pledgedGifts = [
-      {"name": "Smartwatch", "friend": "Alice", "dueDate": "2024-12-20", "status": "Pending"},
-      {"name": "Book", "friend": "Bob", "dueDate": "2024-12-15", "status": "Completed"},
-      {"name": "Headphones", "friend": "Charlie", "dueDate": "2024-12-25", "status": "Pending"},
-    ];
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Pledged Gifts'),
         backgroundColor: Colors.deepPurple[800],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          const Text(
-            "Overview of Pledged Gifts",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 16),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: firestoreService.getPledgedGiftsByUser(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text("Error: ${snapshot.error}"));
+          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return const Center(child: Text("No pledged gifts found."));
+          }
+
+          final pledgedGifts = snapshot.data!;
+          return ListView.builder(
+            padding: const EdgeInsets.all(16.0),
             itemCount: pledgedGifts.length,
             itemBuilder: (context, index) {
               final gift = pledgedGifts[index];
-              final isPending = gift['status'] == 'Pending';
-
               return Card(
-                color: isPending ? Colors.deepPurple[700] : Colors.grey[600],
+                color: Colors.deepPurple[700],
                 child: ListTile(
                   title: Text(
-                    gift['name']!,
+                    gift['name'],
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
-                    "Friend: ${gift['friend']} \nDue Date: ${gift['dueDate']}",
+                    "Event: ${gift['event']}",
                     style: const TextStyle(color: Colors.white70),
                   ),
-                  trailing: isPending
-                      ? IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.white),
-                    onPressed: () {
-                      // Navigate to edit page or show edit dialog
-                      print("Edit ${gift['name']} tapped");
-                    },
-                  )
-                      : null,
-                  onTap: () {
-                    // Show details or additional options
-                    print("${gift['name']} tapped");
-                  },
                 ),
               );
             },
-          ),
-        ],
+          );
+        },
       ),
       backgroundColor: Colors.deepPurple[900],
     );
