@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'login_page.dart';
+import 'database_helper.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({Key? key}) : super(key: key);
@@ -23,11 +24,7 @@ class _SignUpPageState extends State<SignUpPage> {
     final firstName = firstNameController.text.trim();
     final lastName = lastNameController.text.trim();
 
-    if (email.isEmpty ||
-        password.isEmpty ||
-        firstName.isEmpty ||
-        lastName.isEmpty ||
-        selectedDate == null) {
+    if (email.isEmpty || password.isEmpty || firstName.isEmpty || lastName.isEmpty || selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('All fields are required')),
       );
@@ -43,8 +40,7 @@ class _SignUpPageState extends State<SignUpPage> {
 
     try {
       // Create user in Firebase Authentication
-      final UserCredential userCredential =
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -58,6 +54,15 @@ class _SignUpPageState extends State<SignUpPage> {
         'dateOfBirth': selectedDate?.toIso8601String(),
         'profilePicture': 'https://via.placeholder.com/150', // Default profile picture
         'createdAt': Timestamp.now(),
+      });
+
+      // Store user details locally using SQLite
+      final db = DatabaseHelper.instance;
+      await db.insert('Users', {
+        'first_name': firstName,
+        'last_name': lastName,
+        'email': email,
+        'password': password, // Store password in local DB for offline access
       });
 
       // Show success message and navigate to login page
@@ -94,6 +99,7 @@ class _SignUpPageState extends State<SignUpPage> {
       );
     }
   }
+
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,

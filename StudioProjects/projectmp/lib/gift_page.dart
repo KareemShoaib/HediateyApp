@@ -1,41 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'database_helper.dart'; // Import local database helper
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Get current user ID
   String? get userId => _auth.currentUser?.uid;
 
-  // Fetch user's events
-  Stream<List<Map<String, dynamic>>> getEvents() {
+  Future<List<Map<String, dynamic>>> getFirestoreEvents() async {
     if (userId == null) throw Exception("User not logged in");
-    return _firestore.collection('users').doc(userId).collection('events').snapshots().map(
-          (snapshot) => snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
-    );
+    final snapshot = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('events')
+        .get();
+
+    return snapshot.docs
+        .map((doc) => {'id': doc.id, ...doc.data(), 'source': 'Firestore'})
+        .toList();
   }
 
-  // Add a gift to a specific event
+  Stream<List<Map<String, dynamic>>> getGifts(String eventId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('events')
+        .doc(eventId)
+        .collection('gifts')
+        .snapshots()
+        .map((snapshot) =>
+        snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+  }
+
   Future<void> addGift(String eventId, String name) async {
-    if (userId == null) throw Exception("User not logged in");
     await _firestore
         .collection('users')
         .doc(userId)
         .collection('events')
         .doc(eventId)
         .collection('gifts')
-        .add({
-      'name': name,
-      'status': 'Not Pledged',
-      'isPledged': false,
-    });
+        .add({'name': name, 'status': 'Not Pledged'});
   }
 
-  // Update a gift (only name)
   Future<void> updateGift(String eventId, String giftId, String newName) async {
-    if (userId == null) throw Exception("User not logged in");
     await _firestore
         .collection('users')
         .doc(userId)
@@ -43,14 +52,10 @@ class FirestoreService {
         .doc(eventId)
         .collection('gifts')
         .doc(giftId)
-        .update({
-      'name': newName,
-    });
+        .update({'name': newName});
   }
 
-  // Delete a gift
   Future<void> deleteGift(String eventId, String giftId) async {
-    if (userId == null) throw Exception("User not logged in");
     await _firestore
         .collection('users')
         .doc(userId)
@@ -59,19 +64,6 @@ class FirestoreService {
         .collection('gifts')
         .doc(giftId)
         .delete();
-  }
-
-  // Fetch gifts for a specific event
-  Stream<List<Map<String, dynamic>>> getGifts(String eventId) {
-    if (userId == null) throw Exception("User not logged in");
-    return _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('events')
-        .doc(eventId)
-        .collection('gifts')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
   }
 }
 
@@ -84,9 +76,50 @@ class GiftPage extends StatefulWidget {
 
 class _GiftPageState extends State<GiftPage> {
   final FirestoreService _firestoreService = FirestoreService();
-  String? selectedEventId; // Holds the currently selected event ID
+  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+
+  String? selectedEventId;
+  String? selectedEventSource;
+  List<Map<String, dynamic>> combinedEvents = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchCombinedEvents();
+  }
+
+  Future<void> _fetchCombinedEvents() async {
+    final localEvents = await _dbHelper.query(
+      'Events',
+      where: 'user_id = ?',
+      whereArgs: [FirestoreService().userId],
+    );
+
+    final firestoreEvents = await _firestoreService.getFirestoreEvents();
+
+    setState(() {
+      combinedEvents = [
+        ...localEvents.map((e) => {
+          'id': e['id'].toString(),
+          'name': e['name'],
+          'source': 'Local'
+        }),
+        ...firestoreEvents,
+      ];
+    });
+  }
 
   void addGift() {
+    if (selectedEventId == null || selectedEventSource == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select an event first."),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) {
@@ -104,13 +137,49 @@ class _GiftPageState extends State<GiftPage> {
               child: const Text("Cancel"),
             ),
             ElevatedButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty && selectedEventId != null) {
-                  _firestoreService.addGift(selectedEventId!, nameController.text);
-                  Navigator.pop(context);
+              onPressed: () async {
+                if (nameController.text.isNotEmpty) {
+                  try {
+                    if (selectedEventSource == 'Firestore') {
+                      // Firestore insertion
+                      await _firestoreService.addGift(
+                        selectedEventId!,
+                        nameController.text,
+                      );
+                      print("Gift added to Firestore");
+                    } else if (selectedEventSource == 'Local') {
+                      // Local database insertion
+                      int localEventId = int.tryParse(selectedEventId!) ?? -1;
+
+                      if (localEventId > 0) {
+                        final newGift = {
+                          'name': nameController.text,
+                          'event_id': localEventId,
+                        };
+
+                        int result = await _dbHelper.insert('Gifts', newGift);
+
+                        if (result > 0) {
+                          print("Gift successfully added to local database.");
+                        } else {
+                          print("Failed to add gift to local database.");
+                        }
+                      } else {
+                        print("Invalid event ID for local database.");
+                      }
+                    }
+
+                    Navigator.pop(context);
+                    setState(() {}); // Refresh UI
+                  } catch (e) {
+                    print("Error adding gift: $e");
+                  }
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Please select an event and enter a gift name")),
+                    const SnackBar(
+                      content: Text("Gift name cannot be empty."),
+                      backgroundColor: Colors.red,
+                    ),
                   );
                 }
               },
@@ -122,11 +191,13 @@ class _GiftPageState extends State<GiftPage> {
     );
   }
 
-  void editGift(String eventId, String giftId, String currentName) {
+
+  void editGift(String giftId, String currentName) {
     showDialog(
       context: context,
       builder: (context) {
-        final TextEditingController nameController = TextEditingController(text: currentName);
+        final TextEditingController nameController =
+        TextEditingController(text: currentName);
 
         return AlertDialog(
           title: const Text("Edit Gift"),
@@ -136,15 +207,19 @@ class _GiftPageState extends State<GiftPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel")),
             ElevatedButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty) {
-                  _firestoreService.updateGift(eventId, giftId, nameController.text);
-                  Navigator.pop(context);
+              onPressed: () async {
+                if (selectedEventSource == 'Firestore') {
+                  await _firestoreService.updateGift(
+                      selectedEventId!, giftId, nameController.text);
+                } else {
+                  await _dbHelper.update('Gifts', {'name': nameController.text},
+                      where: 'id = ?', whereArgs: [giftId]);
                 }
+                Navigator.pop(context);
+                setState(() {});
               },
               child: const Text("Save"),
             ),
@@ -154,8 +229,13 @@ class _GiftPageState extends State<GiftPage> {
     );
   }
 
-  void deleteGift(String eventId, String giftId) {
-    _firestoreService.deleteGift(eventId, giftId);
+  void deleteGift(String giftId) async {
+    if (selectedEventSource == 'Firestore') {
+      await _firestoreService.deleteGift(selectedEventId!, giftId);
+    } else {
+      await _dbHelper.delete('Gifts', where: 'id = ?', whereArgs: [giftId]);
+    }
+    setState(() {});
   }
 
   @override
@@ -163,95 +243,59 @@ class _GiftPageState extends State<GiftPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gift List'),
-        backgroundColor: Colors.deepPurple[800],
+        backgroundColor: Colors.deepPurple,
       ),
+      backgroundColor: Colors.deepPurple[900], // Set the background color here
       body: Column(
         children: [
-          // Dropdown to select the event
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _firestoreService.getEvents(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Text("No events found. Add events first.");
-                }
-
-                final events = snapshot.data!;
-                return DropdownButton<String>(
-                  value: selectedEventId,
-                  hint: const Text("Select Event"),
-                  isExpanded: true,
-                  items: events.map<DropdownMenuItem<String>>((event) {
-                    return DropdownMenuItem<String>(
-                      value: event['id'] as String,
-                      child: Text(event['name'] as String),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      selectedEventId = value;
-                    });
-                  },
+            padding: const EdgeInsets.only(left: 8.0, top: 12.0),
+            child: DropdownButton<String>(
+              value: selectedEventId,
+              hint: const Padding(
+                padding: EdgeInsets.only(left: 8.0),
+                child: Text("Select Event"),
+              ),
+              isExpanded: true,
+              items: combinedEvents.map<DropdownMenuItem<String>>((event) {
+                return DropdownMenuItem<String>(
+                  value: event['id'],
+                  child: Text(
+                    '${event['name']} (${event['source'] == "Local" ? "Only Me" : "Published to Friends"})',
+                  ),
+                  onTap: () => selectedEventSource = event['source'],
                 );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedEventId = value;
+                });
               },
             ),
           ),
-
-          // Display gifts for the selected event
           Expanded(
             child: selectedEventId == null
-                ? const Center(child: Text("Select an event to view gifts."))
+                ? const Center(
+              child: Text(
+                "Select an event to view gifts.",
+                style: TextStyle(color: Colors.white), // Ensure text visibility
+              ),
+            )
                 : StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _firestoreService.getGifts(selectedEventId!),
+              stream: selectedEventSource == 'Firestore'
+                  ? _firestoreService.getGifts(selectedEventId!)
+                  : null,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  return Center(child: Text("Error: ${snapshot.error}"));
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(child: Text("No gifts found."));
-                }
-
-                final gifts = snapshot.data!;
-                return ListView.builder(
-                  itemCount: gifts.length,
-                  itemBuilder: (context, index) {
-                    final gift = gifts[index];
-                    final bool isPledged = gift['status'] == 'Pledged';
-
-                    return ListTile(
-                      leading: Icon(
-                        Icons.card_giftcard,
-                        color: isPledged ? Colors.green : Colors.red,
-                      ),
-                      title: Text(gift['name']),
-                      subtitle: Text(gift['status']),
-                      trailing: isPledged
-                          ? null // If pledged, remove editing and deleting buttons
-                          : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit, color: Colors.blue),
-                            onPressed: () => editGift(
-                              selectedEventId!,
-                              gift['id'],
-                              gift['name'],
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () => deleteGift(selectedEventId!, gift['id']),
-                          ),
-                        ],
-                      ),
-                    );
+                return selectedEventSource == 'Local'
+                    ? FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _dbHelper.query('Gifts',
+                      where: 'event_id = ?',
+                      whereArgs: [selectedEventId]),
+                  builder: (context, localSnapshot) {
+                    return _buildGiftList(localSnapshot.data ?? []);
                   },
-                );
+                )
+                    : _buildGiftList(snapshot.data ?? []);
               },
             ),
           ),
@@ -259,10 +303,54 @@ class _GiftPageState extends State<GiftPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: addGift,
-        backgroundColor: Colors.deepPurple[700],
+        backgroundColor: Colors.deepPurple,
         child: const Icon(Icons.add),
       ),
-      backgroundColor: Colors.deepPurple[900],
+    );
+  }
+
+
+  Widget _buildGiftList(List<Map<String, dynamic>> gifts) {
+    if (gifts.isEmpty) {
+      return const Center(
+        child: Text("No gifts available."),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: gifts.length,
+      itemBuilder: (context, index) {
+        final gift = gifts[index];
+        final bool isPledged = gift['status'] == 'Pledged';
+
+        return ListTile(
+          leading: Icon(Icons.card_giftcard,
+              color: isPledged ? Colors.green : Colors.red),
+          title: Text(gift['name']),
+          subtitle: Text(
+            isPledged ? "Pledged" : "Not Pledged",
+            style: TextStyle(
+                color: isPledged ? Colors.green : Colors.red,
+                fontWeight: FontWeight.bold),
+          ),
+          trailing: isPledged
+              ? null
+              : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.blue),
+                onPressed: () =>
+                    editGift(gift['id'].toString(), gift['name']),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => deleteGift(gift['id'].toString()),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

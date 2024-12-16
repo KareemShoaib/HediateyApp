@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'database_helper.dart';
+import 'package:intl/intl.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -9,7 +11,7 @@ class FirestoreService {
   // Get the currently logged-in user's ID
   String? get userId => _auth.currentUser?.uid;
 
-  // Add an event associated with the user
+  // Add an event associated with the user to Firestore
   Future<void> addEvent(String name, DateTime date) async {
     if (userId == null) throw Exception("User not logged in");
     await _firestore.collection('users').doc(userId).collection('events').add({
@@ -33,13 +35,11 @@ class FirestoreService {
     await _firestore.collection('users').doc(userId).collection('events').doc(eventId).delete();
   }
 
-  // Fetch events associated with the user
+  // Fetch events from Firestore
   Stream<List<Map<String, dynamic>>> getEvents() {
     if (userId == null) throw Exception("User not logged in");
     return _firestore.collection('users').doc(userId).collection('events').snapshots().map(
-          (snapshot) {
-        return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
-      },
+          (snapshot) => snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
     );
   }
 }
@@ -53,7 +53,15 @@ class EventListPage extends StatefulWidget {
 
 class _EventListPageState extends State<EventListPage> {
   final FirestoreService _firestoreService = FirestoreService();
-  String sortBy = "Name"; // Default sorting criterion
+  final DatabaseHelper _localDB = DatabaseHelper.instance;
+
+  String sortBy = "Name";
+
+  Future<List<Map<String, dynamic>>> _fetchLocalEvents() async {
+    return await _localDB.query('Events',
+        where: 'user_id = ?',
+        whereArgs: [FirebaseAuth.instance.currentUser?.uid]);
+  }
 
   void addEvent() {
     showDialog(
@@ -86,18 +94,19 @@ class _EventListPageState extends State<EventListPage> {
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (nameController.text.isNotEmpty && selectedDate != null) {
-                  _firestoreService.addEvent(nameController.text, selectedDate!);
+                  await _showSaveOptionDialog(
+                      nameController.text, selectedDate!);
                   Navigator.pop(context);
                 }
               },
-              child: const Text("Add"),
+              child: const Text("Next"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
             ),
           ],
         );
@@ -105,13 +114,48 @@ class _EventListPageState extends State<EventListPage> {
     );
   }
 
-  void editEvent(String eventId, String currentName, DateTime currentDate) {
+  Future<void> _showSaveOptionDialog(String name, DateTime date) async {
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Save Event"),
+          content: const Text("Where do you want to save this event?"),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                await _firestoreService.addEvent(name, date);
+                Navigator.pop(context);
+                setState(() {});
+              },
+              child: const Text("Publish to Friends"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _localDB.insert("Events", {
+                  'name': name,
+                  'date': date.toIso8601String(),
+                  'user_id': FirebaseAuth.instance.currentUser?.uid,
+                });
+                Navigator.pop(context);
+                setState(() {});
+              },
+              child: const Text("Only Me"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void editEvent(String id, String source, String currentName,
+      DateTime currentDate) {
     showDialog(
       context: context,
       builder: (context) {
-        final TextEditingController nameController =
-        TextEditingController(text: currentName);
-        DateTime? selectedDate = currentDate;
+        final TextEditingController nameController = TextEditingController(
+            text: currentName);
+        DateTime selectedDate = currentDate;
 
         return AlertDialog(
           title: const Text("Edit Event"),
@@ -126,30 +170,31 @@ class _EventListPageState extends State<EventListPage> {
                 onPressed: () async {
                   final pickedDate = await showDatePicker(
                     context: context,
-                    initialDate: currentDate,
+                    initialDate: selectedDate,
                     firstDate: DateTime.now(),
                     lastDate: DateTime(2100),
                   );
-                  if (pickedDate != null) {
-                    selectedDate = pickedDate;
-                  }
+                  if (pickedDate != null) selectedDate = pickedDate;
                 },
                 child: const Text("Select New Date"),
               ),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
             ElevatedButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty && selectedDate != null) {
-                  _firestoreService.updateEvent(
-                      eventId, nameController.text, selectedDate!);
-                  Navigator.pop(context);
+              onPressed: () async {
+                if (source == "Firestore") {
+                  await _firestoreService.updateEvent(
+                      id, nameController.text, selectedDate);
+                } else {
+                  await _localDB.update('Events', {
+                    'name': nameController.text,
+                    'date': selectedDate.toIso8601String()
+                  },
+                      where: 'id = ?', whereArgs: [id]);
                 }
+                Navigator.pop(context);
+                setState(() {});
               },
               child: const Text("Save"),
             ),
@@ -159,79 +204,52 @@ class _EventListPageState extends State<EventListPage> {
     );
   }
 
-  void deleteEvent(String eventId) {
-    _firestoreService.deleteEvent(eventId);
+  void deleteEvent(String id, String source) {
+    if (source == "Firestore") {
+      _firestoreService.deleteEvent(id);
+    } else {
+      _localDB.delete('Events', where: 'id = ?', whereArgs: [id]);
+    }
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Event List'),
-        backgroundColor: Colors.deepPurple[800],
-      ),
+      appBar: AppBar(title: const Text('Event List'),
+          backgroundColor: Colors.deepPurple[800]),
       body: Column(
         children: [
-          // Sorting Dropdown
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: DropdownButton<String>(
-              value: sortBy,
-              items: const [
-                DropdownMenuItem(value: "Name", child: Text("Sort by Name")),
-                DropdownMenuItem(value: "Date", child: Text("Sort by Date")),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  sortBy = value!;
-                });
-              },
-            ),
-          ),
-
-          // Event List
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _firestoreService.getEvents(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  return Center(child: Text("Error: ${snapshot.error}"));
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(child: Text("No events found"));
-                }
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _fetchLocalEvents(),
+              builder: (context, localSnapshot) {
+                return StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _firestoreService.getEvents(),
+                  builder: (context, firestoreSnapshot) {
+                    final localEvents = localSnapshot.data ?? [];
+                    final firestoreEvents = firestoreSnapshot.data ?? [];
 
-                // Sort events based on the selected criterion
-                final events = snapshot.data!;
-                if (sortBy == "Name") {
-                  events.sort((a, b) => a['name'].compareTo(b['name']));
-                } else if (sortBy == "Date") {
-                  events.sort((a, b) => a['date'].compareTo(b['date']));
-                }
+                    return ListView(
+                      children: [
+                        const ListTile(
+                          title: Text("Published to Friends",
+                              style: TextStyle(fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white)),
+                        ),
+                        ...firestoreEvents.map((event) =>
+                            _buildEventItem(event, "Firestore")),
 
-                return ListView.builder(
-                  itemCount: events.length,
-                  itemBuilder: (context, index) {
-                    final event = events[index];
-                    return ListTile(
-                      leading: const Icon(Icons.event, color: Colors.green),
-                      title: Text(event['name']),
-                      subtitle: Text(event['date'].toDate().toString()),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit, color: Colors.blue),
-                            onPressed: () => editEvent(
-                                event['id'], event['name'], event['date'].toDate()),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () => deleteEvent(event['id']),
-                          ),
-                        ],
-                      ),
+                        const ListTile(
+                          title: Text("Only Me",
+                              style: TextStyle(fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white)),
+                        ),
+                        ...localEvents.map((event) =>
+                            _buildEventItem(event, "Local")),
+                      ],
                     );
                   },
                 );
@@ -246,6 +264,43 @@ class _EventListPageState extends State<EventListPage> {
         child: const Icon(Icons.add),
       ),
       backgroundColor: Colors.deepPurple[900],
+    );
+  }
+
+
+  Widget _buildEventItem(Map<String, dynamic> event, String source) {
+    // Convert Firestore Timestamp to DateTime
+    DateTime eventDate;
+
+    if (event['date'] is Timestamp) {
+      eventDate = (event['date'] as Timestamp).toDate();
+    } else {
+      // Handle local database where date is a string
+      eventDate = DateTime.parse(event['date']);
+    }
+
+    // Format date
+    String formattedDate = DateFormat('yyyy-MM-dd').format(eventDate);
+
+    return ListTile(
+      leading: const Icon(Icons.event, color: Colors.green),
+      title: Text(event['name']),
+      subtitle: Text('Date: $formattedDate'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.edit, color: Colors.blue),
+            onPressed: () =>
+                editEvent(
+                    event['id'].toString(), source, event['name'], eventDate),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: () => deleteEvent(event['id'].toString(), source),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -149,7 +149,7 @@ class ProfilePage extends StatelessWidget {
 
           // User Created Events Section
           const Text(
-            "Your Created Events",
+            "Your Published Events",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
           ),
           const SizedBox(height: 16),
