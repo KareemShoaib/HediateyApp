@@ -7,6 +7,7 @@ import 'main.dart';
 import 'home_page.dart';
 import 'event_list.dart'; // Import the Event List Page
 import 'gift_page.dart'; // Import the Gift Page
+import 'search_people.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -95,6 +96,8 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const SizedBox(height: 20),
+
+            // Welcome Message
             Text(
               'Welcome $firstName',
               style: const TextStyle(
@@ -104,6 +107,37 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 20),
+
+            TextButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => SearchPeoplePage()),
+                );
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.deepPurple[700],
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              icon: const Icon(
+                Icons.search,
+                color: Colors.white,
+              ),
+              label: const Text(
+                'Search for People',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Friends List Button
             TextButton.icon(
               onPressed: () {
                 Navigator.push(
@@ -131,6 +165,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 20),
+
+            // Event List Button
             TextButton.icon(
               onPressed: () {
                 Navigator.push(
@@ -158,6 +194,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 20),
+
+            // Gift List Button
             TextButton.icon(
               onPressed: () {
                 Navigator.push(

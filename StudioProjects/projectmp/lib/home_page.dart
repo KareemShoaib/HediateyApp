@@ -4,14 +4,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class Friend {
   final String id;
-  final String email;
-  final String profilePicture;
+  final String firstName;
+  final String lastName;
   final int numberOfEvents;
 
   Friend({
     required this.id,
-    required this.email,
-    required this.profilePicture,
+    required this.firstName,
+    required this.lastName,
     required this.numberOfEvents,
   });
 }
@@ -20,39 +20,41 @@ class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Fetch all users except the logged-in user
-  Stream<List<Friend>> getAllUsersWithEvents() async* {
+  // Fetch friends of the logged-in user
+  Stream<List<Friend>> getUserFriends() async* {
     final currentUser = _auth.currentUser;
-    final userSnapshots = await _firestore.collection('users').get();
+
+    if (currentUser == null) {
+      yield [];
+      return;
+    }
+
+    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final friendsList = userDoc.data()?['friends'] as List<dynamic>? ?? [];
 
     List<Friend> friends = [];
 
-    for (var userDoc in userSnapshots.docs) {
-      final userId = userDoc.id;
-      final userData = userDoc.data();
+    for (String friendId in friendsList) {
+      final friendDoc = await _firestore.collection('users').doc(friendId).get();
 
-      // Skip the logged-in user's email and users without a valid email
-      final email = userData['email'];
-      if (email == null || email.isEmpty || email == currentUser?.email) {
-        continue;
+      if (friendDoc.exists) {
+        final friendData = friendDoc.data()!;
+        final eventCount = await _firestore
+            .collection('users')
+            .doc(friendId)
+            .collection('events')
+            .get()
+            .then((snapshot) => snapshot.size);
+
+        friends.add(
+          Friend(
+            id: friendId,
+            firstName: friendData['firstName'] ?? 'Unknown',
+            lastName: friendData['lastName'] ?? 'Unknown',
+            numberOfEvents: eventCount,
+          ),
+        );
       }
-
-      // Fetch the number of events for the user
-      final eventCount = await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('events')
-          .get()
-          .then((eventSnapshot) => eventSnapshot.size);
-
-      friends.add(
-        Friend(
-          id: userId,
-          email: email,
-          profilePicture: userData['profilePicture'] ?? 'https://via.placeholder.com/150',
-          numberOfEvents: eventCount,
-        ),
-      );
     }
 
     yield friends;
@@ -88,6 +90,7 @@ class FirestoreService {
         .doc(giftId)
         .update({'status': 'Pledged'});
   }
+
 }
 
 class FriendWidget extends StatelessWidget {
@@ -100,24 +103,14 @@ class FriendWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       onTap: onTap,
-      leading: CircleAvatar(
-        backgroundImage: NetworkImage(friend.profilePicture),
-        radius: 25,
+      leading: const CircleAvatar(
+        child: Icon(Icons.person),
       ),
       title: Text(
-        friend.email,
+        '${friend.firstName} ${friend.lastName}',
         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Number of Events: ${friend.numberOfEvents}",
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
+      subtitle: Text("Number of Events: ${friend.numberOfEvents}"),
       trailing: friend.numberOfEvents > 0
           ? Container(
         padding: const EdgeInsets.all(5),
@@ -144,60 +137,51 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final FirestoreService _firestoreService = FirestoreService();
-  String searchQuery = "";
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Friends List'),
+        title: const Text('Your Friends'),
         backgroundColor: Colors.deepPurple[800],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
-          ),
-        ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<List<Friend>>(
-              stream: _firestoreService.getAllUsersWithEvents(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  return Center(child: Text("Error: ${snapshot.error}"));
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(child: Text("No friends found."));
-                }
+      body: StreamBuilder<List<Friend>>(
+        stream: _firestoreService.getUserFriends(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-                final friends = snapshot.data!;
+          if (snapshot.hasError) {
+            return Center(child: Text("Error: ${snapshot.error}"));
+          }
 
-                return ListView.builder(
-                  itemCount: friends.length,
-                  itemBuilder: (context, index) {
-                    return FriendWidget(
-                      friend: friends[index],
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => UserEventListPage(
-                              userId: friends[index].id,
-                              userEmail: friends[index].email,
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return const Center(child: Text("You have no friends added yet."));
+          }
+
+          final friends = snapshot.data!;
+
+          return ListView.builder(
+            itemCount: friends.length,
+            itemBuilder: (context, index) {
+              return FriendWidget(
+                friend: friends[index],
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UserEventListPage(
+                        userId: friends[index].id,
+                        userName: "${friends[index].firstName} ${friends[index].lastName}",
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
       ),
       backgroundColor: Colors.deepPurple[900],
     );
@@ -206,9 +190,9 @@ class _HomePageState extends State<HomePage> {
 
 class UserEventListPage extends StatelessWidget {
   final String userId;
-  final String userEmail;
+  final String userName;
 
-  const UserEventListPage({Key? key, required this.userId, required this.userEmail}) : super(key: key);
+  const UserEventListPage({Key? key, required this.userId, required this.userName}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -216,7 +200,7 @@ class UserEventListPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("$userEmail's Events"),
+        title: Text("$userName's Events"),
         backgroundColor: Colors.deepPurple[800],
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
@@ -224,9 +208,13 @@ class UserEventListPage extends StatelessWidget {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
+          }
+
+          if (snapshot.hasError) {
             return Center(child: Text("Error: ${snapshot.error}"));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          }
+
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No events found."));
           }
 
@@ -266,8 +254,12 @@ class EventGiftListPage extends StatelessWidget {
   final String eventId;
   final String eventName;
 
-  const EventGiftListPage({Key? key, required this.userId, required this.eventId, required this.eventName})
-      : super(key: key);
+  const EventGiftListPage({
+    Key? key,
+    required this.userId,
+    required this.eventId,
+    required this.eventName,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -283,9 +275,13 @@ class EventGiftListPage extends StatelessWidget {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
+          }
+
+          if (snapshot.hasError) {
             return Center(child: Text("Error: ${snapshot.error}"));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          }
+
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No gifts found."));
           }
 
@@ -297,19 +293,22 @@ class EventGiftListPage extends StatelessWidget {
               return ListTile(
                 leading: const Icon(Icons.card_giftcard, color: Colors.purple),
                 title: Text(gift['name']),
-                subtitle: Text(gift['status'] ?? 'Not Pledged'),
-                trailing: IconButton(
-                  icon: Icon(
-                    Icons.check_circle,
+                subtitle: Text(
+                  gift['status'] ?? 'Not Pledged',
+                  style: TextStyle(
                     color: gift['status'] == 'Pledged' ? Colors.green : Colors.grey,
                   ),
+                ),
+                trailing: gift['status'] == 'Pledged'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : IconButton(
+                  icon: const Icon(Icons.check_circle_outline, color: Colors.grey),
                   onPressed: () {
-                    if (gift['status'] != 'Pledged') {
-                      firestoreService.pledgeGift(userId, eventId, gift['id']);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Gift pledged successfully!')),
-                      );
-                    }
+                    // Pledge the gift
+                    firestoreService.pledgeGift(userId, eventId, gift['id']);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Gift pledged successfully!')),
+                    );
                   },
                 ),
               );
@@ -321,4 +320,3 @@ class EventGiftListPage extends StatelessWidget {
     );
   }
 }
-

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'update_profile.dart';
 import 'mypledgedgifts.dart';
+import 'main.dart'; // Import MyApp for logout navigation
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -47,6 +48,22 @@ class FirestoreService {
 
     yield events;
   }
+
+  // Fetch user's first and last name
+  Future<Map<String, String>> getUserName() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return {'firstName': 'Unknown', 'lastName': 'User'};
+
+    final doc = await _firestore.collection('users').doc(userId).get();
+    if (doc.exists) {
+      final data = doc.data();
+      return {
+        'firstName': data?['firstName'] ?? 'Unknown',
+        'lastName': data?['lastName'] ?? 'User',
+      };
+    }
+    return {'firstName': 'Unknown', 'lastName': 'User'};
+  }
 }
 
 class ProfilePage extends StatelessWidget {
@@ -66,18 +83,39 @@ class ProfilePage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // Email Section
-          const SizedBox(height: 16),
-          Center(
-            child: Text(
-              email,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
+          // Fetch and Display First and Last Name
+          FutureBuilder<Map<String, String>>(
+            future: _firestoreService.getUserName(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final firstName = snapshot.data?['firstName'] ?? 'Unknown';
+              final lastName = snapshot.data?['lastName'] ?? 'User';
+
+              return Column(
+                children: [
+                  Text(
+                    "$firstName $lastName",
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    email,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
+
           const Divider(height: 32, color: Colors.white70),
 
           // Personal Information Section
@@ -148,7 +186,6 @@ class ProfilePage extends StatelessWidget {
                       ),
                       trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white),
                       onTap: () {
-                        // Navigate to event details page or perform another action
                         print("${event['name']} tapped");
                       },
                     ),
@@ -171,6 +208,24 @@ class ProfilePage extends StatelessWidget {
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => PledgedGiftsPage()),
+              );
+            },
+          ),
+
+          const Divider(height: 32, color: Colors.white70),
+
+          // Logout Button
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.white),
+            title: const Text(
+              "Logout",
+              style: TextStyle(color: Colors.white),
+            ),
+            onTap: () async {
+              await FirebaseAuth.instance.signOut();
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MyApp()),
               );
             },
           ),
