@@ -230,25 +230,43 @@ class _EventListPageState extends State<EventListPage> {
                     final localEvents = localSnapshot.data ?? [];
                     final firestoreEvents = firestoreSnapshot.data ?? [];
 
+                    if (localEvents.isEmpty && firestoreEvents.isEmpty) {
+                      // If no events are present in both sources
+                      return const Center(
+                        child: Text(
+                          "No events created",
+                          style: TextStyle(color: Colors.white, fontSize: 18),
+                        ),
+                      );
+                    }
+
                     return ListView(
                       children: [
-                        const ListTile(
-                          title: Text("Published to Friends",
-                              style: TextStyle(fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white)),
-                        ),
-                        ...firestoreEvents.map((event) =>
-                            _buildEventItem(event, "Firestore")),
+                        if (firestoreEvents.isNotEmpty)
+                          const ListTile(
+                            title: Text(
+                              "Published to Friends",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ...firestoreEvents.map((event) => _buildEventItem(event, "Firestore")),
 
-                        const ListTile(
-                          title: Text("Only Me",
-                              style: TextStyle(fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white)),
-                        ),
-                        ...localEvents.map((event) =>
-                            _buildEventItem(event, "Local")),
+                        if (localEvents.isNotEmpty)
+                          const ListTile(
+                            title: Text(
+                              "Only Me",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ...localEvents.map((event) => _buildEventItem(event, "Local")),
                       ],
                     );
                   },
@@ -256,6 +274,7 @@ class _EventListPageState extends State<EventListPage> {
               },
             ),
           ),
+
         ],
       ),
       floatingActionButton: FloatingActionButton(

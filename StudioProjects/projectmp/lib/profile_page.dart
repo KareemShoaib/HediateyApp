@@ -120,9 +120,9 @@ class ProfilePage extends StatelessWidget {
 
           // Personal Information Section
           ListTile(
-            leading: const Icon(Icons.edit, color: Colors.white),
+            leading: const Icon(Icons.lock, color: Colors.white),
             title: const Text(
-              "Update Personal Information",
+              "Update Password",
               style: TextStyle(color: Colors.white),
             ),
             onTap: () {

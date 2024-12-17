@@ -80,16 +80,38 @@ class FirestoreService {
   }
 
   // Update the gift's status to "Pledged"
-  Future<void> pledgeGift(String userId, String eventId, String giftId) async {
-    await _firestore
+  Future<void> pledgeGift(String userId, String eventId, String giftId, String userName) async {
+    final giftRef = _firestore
         .collection('users')
         .doc(userId)
         .collection('events')
         .doc(eventId)
         .collection('gifts')
-        .doc(giftId)
-        .update({'status': 'Pledged'});
+        .doc(giftId);
+
+    // Update gift's status and store who pledged it
+    await giftRef.update({
+      'status': 'Pledged',
+      'pledgedBy': userName,
+    });
+
+    // Fetch gift details
+    final giftSnapshot = await giftRef.get();
+    final giftData = giftSnapshot.data();
+
+    // Store the pledged gift in a "pledged_gifts" collection
+    if (giftData != null) {
+      await _firestore.collection('pledged_gifts').add({
+        'giftId': giftId,
+        'eventId': eventId,
+        'eventOwnerId': userId,
+        'name': giftData['name'],
+        'pledgedBy': userName,
+        'pledgedAt': Timestamp.now(),
+      });
+    }
   }
+
 
 }
 
@@ -304,12 +326,17 @@ class EventGiftListPage extends StatelessWidget {
                     : IconButton(
                   icon: const Icon(Icons.check_circle_outline, color: Colors.grey),
                   onPressed: () {
-                    // Pledge the gift
-                    firestoreService.pledgeGift(userId, eventId, gift['id']);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Gift pledged successfully!')),
-                    );
+                    final currentUser = FirebaseAuth.instance.currentUser;
+
+                    if (currentUser != null) {
+                      final userName = currentUser.displayName ?? currentUser.email ?? 'Unknown User';
+                      firestoreService.pledgeGift(userId, eventId, gift['id'], userName);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Gift pledged successfully!')),
+                      );
+                    }
                   },
+
                 ),
               );
             },

@@ -17,24 +17,23 @@ class _SignUpPageState extends State<SignUpPage> {
   final TextEditingController firstNameController = TextEditingController();
   final TextEditingController lastNameController = TextEditingController();
   DateTime? selectedDate;
+  bool isLoading = false; // To manage button loading state
+  bool isPasswordVisible = false; // To toggle password visibility
 
   Future<void> _signup() async {
+    setState(() {
+      isLoading = true;
+    });
+
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
     final firstName = firstNameController.text.trim();
     final lastName = lastNameController.text.trim();
 
-    if (email.isEmpty || password.isEmpty || firstName.isEmpty || lastName.isEmpty || selectedDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All fields are required')),
-      );
-      return;
-    }
-
-    if (password.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password must be at least 6 characters long')),
-      );
+    if (!_validateInputs(email, password, firstName, lastName, selectedDate)) {
+      setState(() {
+        isLoading = false;
+      });
       return;
     }
 
@@ -76,6 +75,7 @@ class _SignUpPageState extends State<SignUpPage> {
       lastNameController.clear();
       setState(() {
         selectedDate = null;
+        isLoading = false;
       });
 
       Navigator.pushReplacement(
@@ -97,7 +97,36 @@ class _SignUpPageState extends State<SignUpPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(errorMessage)),
       );
+
+      setState(() {
+        isLoading = false;
+      });
     }
+  }
+
+  bool _validateInputs(String email, String password, String firstName, String lastName, DateTime? date) {
+    if (email.isEmpty || password.isEmpty || firstName.isEmpty || lastName.isEmpty || date == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All fields are required')),
+      );
+      return false;
+    }
+
+    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid email address')),
+      );
+      return false;
+    }
+
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password must be at least 6 characters long')),
+      );
+      return false;
+    }
+
+    return true;
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -110,7 +139,7 @@ class _SignUpPageState extends State<SignUpPage> {
         return Theme(
           data: ThemeData.light().copyWith(
             primaryColor: Colors.deepPurple,
-            colorScheme: ColorScheme.light(primary: Colors.deepPurple), // Updated
+            colorScheme: ColorScheme.light(primary: Colors.deepPurple),
             buttonTheme: const ButtonThemeData(textTheme: ButtonTextTheme.primary),
           ),
           child: child!,
@@ -123,7 +152,6 @@ class _SignUpPageState extends State<SignUpPage> {
       });
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +168,6 @@ class _SignUpPageState extends State<SignUpPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Title
               const Text(
                 'Create Your Account',
                 style: TextStyle(
@@ -151,39 +178,12 @@ class _SignUpPageState extends State<SignUpPage> {
               ),
               const SizedBox(height: 24),
 
-              // First Name Field
-              TextFormField(
-                controller: firstNameController,
-                decoration: InputDecoration(
-                  labelText: 'First Name',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  labelStyle: const TextStyle(color: Colors.white),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
+              _buildTextField(firstNameController, 'First Name'),
               const SizedBox(height: 16),
 
-              // Last Name Field
-              TextFormField(
-                controller: lastNameController,
-                decoration: InputDecoration(
-                  labelText: 'Last Name',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  labelStyle: const TextStyle(color: Colors.white),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
+              _buildTextField(lastNameController, 'Last Name'),
               const SizedBox(height: 16),
 
-              // Date of Birth Field
               GestureDetector(
                 onTap: () => _selectDate(context),
                 child: Container(
@@ -208,44 +208,33 @@ class _SignUpPageState extends State<SignUpPage> {
               ),
               const SizedBox(height: 16),
 
-              // Email Field
-              TextFormField(
-                controller: emailController,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  labelStyle: const TextStyle(color: Colors.white),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
+              _buildTextField(emailController, 'Email', keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 16),
 
-              // Password Field
-              TextFormField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+              _buildTextField(
+                passwordController,
+                'Password',
+                obscureText: !isPasswordVisible,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                    color: Colors.white,
                   ),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  labelStyle: const TextStyle(color: Colors.white),
+                  onPressed: () {
+                    setState(() {
+                      isPasswordVisible = !isPasswordVisible;
+                    });
+                  },
                 ),
-                style: const TextStyle(color: Colors.white),
               ),
               const SizedBox(height: 32),
 
-              // Sign Up Button
-              ElevatedButton(
+              isLoading
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : ElevatedButton(
                 onPressed: _signup,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple[700], // Button color
+                  backgroundColor: Colors.deepPurple[700],
                   padding: const EdgeInsets.symmetric(horizontal: 100, vertical: 15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -253,15 +242,11 @@ class _SignUpPageState extends State<SignUpPage> {
                 ),
                 child: const Text(
                   'Sign Up',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
               const SizedBox(height: 16),
 
-              // Navigate to Login Page
               TextButton(
                 onPressed: () {
                   Navigator.pushReplacement(
@@ -278,6 +263,31 @@ class _SignUpPageState extends State<SignUpPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTextField(
+      TextEditingController controller,
+      String labelText, {
+        bool obscureText = false,
+        TextInputType keyboardType = TextInputType.text,
+        Widget? suffixIcon,
+      }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: labelText,
+        suffixIcon: suffixIcon,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.1),
+        labelStyle: const TextStyle(color: Colors.white),
+      ),
+      style: const TextStyle(color: Colors.white),
     );
   }
 }

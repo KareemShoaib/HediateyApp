@@ -45,44 +45,50 @@ class FirestoreService {
 }
 
 class PledgedGiftsPage extends StatelessWidget {
-  final FirestoreService firestoreService = FirestoreService();
-
-  PledgedGiftsPage({Key? key}) : super(key: key);
+  const PledgedGiftsPage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final pledgedGiftsRef = FirebaseFirestore.instance.collection('pledged_gifts');
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Pledged Gifts'),
+        title: const Text('Pledged Gifts'),
         backgroundColor: Colors.deepPurple[800],
       ),
-      body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: firestoreService.getPledgedGiftsByUser(),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: pledgedGiftsRef.snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
+          }
+          if (snapshot.hasError) {
             return Center(child: Text("Error: ${snapshot.error}"));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text("No pledged gifts found."));
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text(
+                "No pledged gifts found.",
+                style: TextStyle(color: Colors.white),
+              ),
+            );
           }
 
-          final pledgedGifts = snapshot.data!;
+          final gifts = snapshot.data!.docs;
+
           return ListView.builder(
-            padding: const EdgeInsets.all(16.0),
-            itemCount: pledgedGifts.length,
+            itemCount: gifts.length,
             itemBuilder: (context, index) {
-              final gift = pledgedGifts[index];
-              return Card(
-                color: Colors.deepPurple[700],
-                child: ListTile(
-                  title: Text(
-                    gift['name'],
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    "Event: ${gift['event']}",
-                    style: const TextStyle(color: Colors.white70),
+              final gift = gifts[index];
+
+              return ListTile(
+                leading: const Icon(Icons.card_giftcard, color: Colors.green),
+                title: Text(
+                  gift['name'], // Display only the gift's name
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
               );
@@ -90,7 +96,7 @@ class PledgedGiftsPage extends StatelessWidget {
           );
         },
       ),
-      backgroundColor: Colors.deepPurple[900],
+      backgroundColor: Colors.deepPurple[900], // Background color
     );
   }
 }
