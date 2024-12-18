@@ -205,13 +205,37 @@ class _EventListPageState extends State<EventListPage> {
   }
 
   void deleteEvent(String id, String source) {
-    if (source == "Firestore") {
-      _firestoreService.deleteEvent(id);
-    } else {
-      _localDB.delete('Events', where: 'id = ?', whereArgs: [id]);
-    }
-    setState(() {});
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Delete Event"),
+          content: const Text("Are you sure you want to delete this event?"),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context); // Close the dialog without deleting
+              },
+              child: const Text("No"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context); // Close the dialog
+                if (source == "Firestore") {
+                  await _firestoreService.deleteEvent(id);
+                } else {
+                  await _localDB.delete('Events', where: 'id = ?', whereArgs: [id]);
+                }
+                setState(() {}); // Refresh the UI
+              },
+              child: const Text("Yes"),
+            ),
+          ],
+        );
+      },
+    );
   }
+
 
   @override
   Widget build(BuildContext context) {
