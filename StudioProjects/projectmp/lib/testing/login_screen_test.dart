@@ -1,59 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:mockito/mockito.dart';
 import 'package:projectmp/login_page.dart';
 import 'package:projectmp/signup_page.dart';
 import 'package:projectmp/welcome_page.dart';
-import 'mocks.dart';
-
-// Mock dependencies
-class MockFirebaseAuth extends Mock implements FirebaseAuth {}
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+      'Displays Login Page Elements Correctly', (WidgetTester tester) async {
+    // Load the LoginScreen widget
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
-  group('LoginScreen Widget Tests', () {
-    late MockFirebaseAuth mockAuth;
+    // Verify UI components
+    expect(find.text('Login'), findsOneWidget); // AppBar Title
+    expect(find.text('Welcome to Hedieaty'), findsOneWidget); // Welcome Text
+    expect(find.byType(TextFormField),
+        findsNWidgets(2)); // Email and Password fields
+    expect(find.byType(ElevatedButton),
+        findsNWidgets(2)); // Login and Sign Up buttons
+  });
 
-    setUp(() {
-      mockAuth = MockFirebaseAuth();
-    });
+  testWidgets('Displays error message when fields are empty', (
+      WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
-    testWidgets('renders all widgets correctly', (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+    // Tap the Login button without entering email or password
+    final loginButton = find.byKey(const Key('loginButton'));
+    await tester.tap(loginButton);
+    await tester.pump();
 
-      // Verify presence of all fields
-      expect(find.text('Welcome to Hedieaty'), findsOneWidget);
-      expect(find.byType(TextFormField), findsNWidgets(2)); // Email and password
-      expect(find.text('Sign Up'), findsOneWidget);
-    });
+    // Check for error SnackBar
+    expect(find.text('Email and Password cannot be empty'), findsOneWidget);
+  });
 
-    testWidgets('shows SnackBar when fields are empty', (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+  testWidgets('Navigates to Sign Up page when Sign Up button is pressed', (
+      WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
-      // Find the Login button using its unique key
-      final loginButton = find.byKey(const Key('loginButton'));
-      await tester.tap(loginButton);
-      await tester.pump();
+    // Tap the Sign Up button
+    final signUpButton = find.text('Sign Up');
+    await tester.tap(signUpButton);
+    await tester.pumpAndSettle();
 
-      // Verify SnackBar shows up
-      expect(find.text('Email and Password cannot be empty'), findsOneWidget);
-    });
-
-
-
-    testWidgets('navigates to Sign Up page when Sign Up is tapped', (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-
-      // Tap the Sign Up button
-      final signUpButton = find.text('Sign Up');
-      await tester.tap(signUpButton);
-      await tester.pumpAndSettle();
-
-      // Verify navigation to SignUpPage
-      expect(find.byType(SignUpPage), findsOneWidget);
-    });
-
+    // Verify that SignUpPage is loaded
+    expect(find.byType(SignUpPage), findsOneWidget);
   });
 }

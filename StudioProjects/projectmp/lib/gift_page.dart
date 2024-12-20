@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'database_helper.dart'; // Import local database helper
+import 'package:image_picker/image_picker.dart';
+import 'database_helper.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -34,14 +36,14 @@ class FirestoreService {
         snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
   }
 
-  Future<void> addGift(String eventId, String name) async {
+  Future<void> addGift(String eventId, String name, String? imagePath) async {
     await _firestore
         .collection('users')
         .doc(userId)
         .collection('events')
         .doc(eventId)
         .collection('gifts')
-        .add({'name': name, 'status': 'Not Pledged'});
+        .add({'name': name, 'image': imagePath, 'status': 'Not Pledged'});
   }
 
   Future<void> updateGift(String eventId, String giftId, String newName) async {
@@ -77,9 +79,11 @@ class GiftPage extends StatefulWidget {
 class _GiftPageState extends State<GiftPage> {
   final FirestoreService _firestoreService = FirestoreService();
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+  final ImagePicker _imagePicker = ImagePicker();
 
   String? selectedEventId;
   String? selectedEventSource;
+  String? _selectedImagePath;
   List<Map<String, dynamic>> combinedEvents = [];
 
   @override
@@ -109,7 +113,139 @@ class _GiftPageState extends State<GiftPage> {
     });
   }
 
-  void addGift() {
+  Widget _buildGiftList(List<Map<String, dynamic>> gifts) {
+    if (gifts.isEmpty) {
+      return const Center(
+        child: Text("No gifts available."),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: gifts.length,
+      itemBuilder: (context, index) {
+        final gift = gifts[index];
+        final bool isPledged = gift['status'] == 'Pledged';
+
+        return ListTile(
+          leading: const Icon(Icons.card_giftcard, color: Colors.red),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      gift['name'],
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      isPledged ? "Pledged" : "Not Pledged",
+                      style: TextStyle(
+                        color: isPledged ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (gift['image'] != null && File(gift['image']).existsSync())
+                Container(
+                  margin: const EdgeInsets.only(left: 10.0),
+                  width: 50,
+                  height: 50,
+                  child: Image.file(
+                    File(gift['image']),
+                    fit: BoxFit.cover,
+                  ),
+                ),
+            ],
+          ),
+          trailing: isPledged
+              ? null // Do not show any buttons if the gift is pledged
+              : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.blue),
+                onPressed: () =>
+                    _editGift(gift['id'].toString(), gift['name']),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _deleteGift(gift['id'].toString()),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
+  void _editGift(String giftId, String currentName) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final TextEditingController nameController =
+        TextEditingController(text: currentName);
+
+        return AlertDialog(
+          title: const Text("Edit Gift"),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(labelText: "Gift Name"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  if (selectedEventSource == 'Firestore') {
+                    await _firestoreService.updateGift(
+                      selectedEventId!,
+                      giftId,
+                      nameController.text,
+                    );
+                  } else if (selectedEventSource == 'Local') {
+                    await _dbHelper.update(
+                      'Gifts',
+                      {'name': nameController.text},
+                      where: 'id = ?',
+                      whereArgs: [giftId],
+                    );
+                  }
+                  Navigator.pop(context);
+                  setState(() {}); // Refresh UI
+                } catch (e) {
+                  print("Error editing gift: $e");
+                }
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _deleteGift(String giftId) async {
+    try {
+      if (selectedEventSource == 'Firestore') {
+        await _firestoreService.deleteGift(selectedEventId!, giftId);
+      } else if (selectedEventSource == 'Local') {
+        await _dbHelper.delete('Gifts', where: 'id = ?', whereArgs: [giftId]);
+      }
+      setState(() {}); // Refresh UI
+    } catch (e) {
+      print("Error deleting gift: $e");
+    }
+  }
+
+  void _addGift() {
     if (selectedEventId == null || selectedEventSource == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -127,9 +263,34 @@ class _GiftPageState extends State<GiftPage> {
 
         return AlertDialog(
           title: const Text("Add Gift"),
-          content: TextField(
-            controller: nameController,
-            decoration: const InputDecoration(labelText: "Gift Name"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: "Gift Name"),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.image),
+                label: const Text("Select Image (Optional)"),
+                onPressed: () async {
+                  final pickedFile = await _imagePicker.pickImage(
+                    source: ImageSource.gallery,
+                  );
+                  if (pickedFile != null) {
+                    setState(() {
+                      _selectedImagePath = pickedFile.path;
+                    });
+                  }
+                },
+              ),
+              if (_selectedImagePath != null)
+                Text(
+                  "Image Selected: ${_selectedImagePath!.split('/').last}",
+                  style: const TextStyle(fontSize: 12, color: Colors.green),
+                ),
+            ],
           ),
           actions: [
             TextButton(
@@ -141,36 +302,23 @@ class _GiftPageState extends State<GiftPage> {
                 if (nameController.text.isNotEmpty) {
                   try {
                     if (selectedEventSource == 'Firestore') {
-                      // Firestore insertion
                       await _firestoreService.addGift(
                         selectedEventId!,
                         nameController.text,
+                        _selectedImagePath,
                       );
-                      print("Gift added to Firestore");
                     } else if (selectedEventSource == 'Local') {
-                      // Local database insertion
-                      int localEventId = int.tryParse(selectedEventId!) ?? -1;
-
-                      if (localEventId > 0) {
-                        final newGift = {
-                          'name': nameController.text,
-                          'event_id': localEventId,
-                        };
-
-                        int result = await _dbHelper.insert('Gifts', newGift);
-
-                        if (result > 0) {
-                          print("Gift successfully added to local database.");
-                        } else {
-                          print("Failed to add gift to local database.");
-                        }
-                      } else {
-                        print("Invalid event ID for local database.");
-                      }
+                      final newGift = {
+                        'name': nameController.text,
+                        'image': _selectedImagePath,
+                        'event_id': int.tryParse(selectedEventId!) ?? -1,
+                      };
+                      int result = await _dbHelper.insert('Gifts', newGift);
                     }
-
                     Navigator.pop(context);
-                    setState(() {}); // Refresh UI
+                    setState(() {
+                      _selectedImagePath = null;
+                    });
                   } catch (e) {
                     print("Error adding gift: $e");
                   }
@@ -192,72 +340,23 @@ class _GiftPageState extends State<GiftPage> {
   }
 
 
-  void editGift(String giftId, String currentName) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        final TextEditingController nameController =
-        TextEditingController(text: currentName);
-
-        return AlertDialog(
-          title: const Text("Edit Gift"),
-          content: TextField(
-            controller: nameController,
-            decoration: const InputDecoration(labelText: "Gift Name"),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Cancel")),
-            ElevatedButton(
-              onPressed: () async {
-                if (selectedEventSource == 'Firestore') {
-                  await _firestoreService.updateGift(
-                      selectedEventId!, giftId, nameController.text);
-                } else {
-                  await _dbHelper.update('Gifts', {'name': nameController.text},
-                      where: 'id = ?', whereArgs: [giftId]);
-                }
-                Navigator.pop(context);
-                setState(() {});
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void deleteGift(String giftId) async {
-    if (selectedEventSource == 'Firestore') {
-      await _firestoreService.deleteGift(selectedEventId!, giftId);
-    } else {
-      await _dbHelper.delete('Gifts', where: 'id = ?', whereArgs: [giftId]);
-    }
-    setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gift List'),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: Colors.deepPurple[800], // Match AppBar color
       ),
-      backgroundColor: Colors.deepPurple[900], // Set the background color here
+      backgroundColor: Colors.deepPurple[900], // Match the exact background color
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 8.0, top: 12.0),
+            padding: const EdgeInsets.all(8.0),
             child: DropdownButton<String>(
               value: selectedEventId,
-              hint: const Padding(
-                padding: EdgeInsets.only(left: 8.0),
-                child: Text("Select Event"),
-              ),
+              hint: const Text("Select Event"),
               isExpanded: true,
-              items: combinedEvents.map<DropdownMenuItem<String>>((event) {
+              items: combinedEvents.map((event) {
                 return DropdownMenuItem<String>(
                   value: event['id'],
                   child: Text(
@@ -278,7 +377,7 @@ class _GiftPageState extends State<GiftPage> {
                 ? const Center(
               child: Text(
                 "Select an event to view gifts.",
-                style: TextStyle(color: Colors.white), // Ensure text visibility
+                style: TextStyle(color: Colors.white, fontSize: 16), // Match text style
               ),
             )
                 : StreamBuilder<List<Map<String, dynamic>>>(
@@ -302,55 +401,11 @@ class _GiftPageState extends State<GiftPage> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: addGift,
-        backgroundColor: Colors.deepPurple,
+        onPressed: _addGift,
+        backgroundColor: Colors.deepPurple[700], // Match FloatingActionButton color
         child: const Icon(Icons.add),
       ),
     );
   }
 
-
-  Widget _buildGiftList(List<Map<String, dynamic>> gifts) {
-    if (gifts.isEmpty) {
-      return const Center(
-        child: Text("No gifts available."),
-      );
-    }
-
-    return ListView.builder(
-      itemCount: gifts.length,
-      itemBuilder: (context, index) {
-        final gift = gifts[index];
-        final bool isPledged = gift['status'] == 'Pledged';
-
-        return ListTile(
-          leading: Icon(Icons.card_giftcard,
-              color: isPledged ? Colors.green : Colors.red),
-          title: Text(gift['name']),
-          subtitle: Text(
-            isPledged ? "Pledged" : "Not Pledged",
-            style: TextStyle(
-                color: isPledged ? Colors.green : Colors.red,
-                fontWeight: FontWeight.bold),
-          ),
-          trailing: isPledged
-              ? null
-              : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.edit, color: Colors.blue),
-                onPressed: () =>
-                    editGift(gift['id'].toString(), gift['name']),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => deleteGift(gift['id'].toString()),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 }

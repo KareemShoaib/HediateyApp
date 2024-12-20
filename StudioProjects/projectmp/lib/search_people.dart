@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io'; // Import this to use the File class
 
 class SearchPeoplePage extends StatefulWidget {
   const SearchPeoplePage({super.key});
@@ -13,6 +14,7 @@ class _SearchPeoplePageState extends State<SearchPeoplePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _searchController = TextEditingController();
   String searchQuery = ''; // Holds the search query
+  String sortOption = 'Alphabetically'; // Default sorting option
 
   // Function to add friends to each other
   Future<void> _addFriend(String currentUserId, String otherUserId) async {
@@ -36,6 +38,12 @@ class _SearchPeoplePageState extends State<SearchPeoplePage> {
     }
   }
 
+  void _changeSortOption(String newOption) {
+    setState(() {
+      sortOption = newOption;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final String currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -46,19 +54,19 @@ class _SearchPeoplePageState extends State<SearchPeoplePage> {
         backgroundColor: Colors.deepPurple[800],
         centerTitle: true,
         actions: [
-          // Search Bar Icon
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              showSearch(
-                context: context,
-                delegate: UserSearchDelegate(
-                  firestore: _firestore,
-                  currentUserId: currentUserId,
-                  onAddFriend: _addFriend,
-                ),
-              );
-            },
+          PopupMenuButton<String>(
+            onSelected: _changeSortOption,
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'Alphabetically',
+                child: Text('Sort Alphabetically'),
+              ),
+              const PopupMenuItem(
+                value: 'Friends First',
+                child: Text('Sort Friends First'),
+              ),
+            ],
+            icon: const Icon(Icons.sort),
           ),
         ],
       ),
@@ -93,6 +101,36 @@ class _SearchPeoplePageState extends State<SearchPeoplePage> {
             return userId != currentUserId;
           }).toList();
 
+          // Sort users based on the selected sort option
+          if (sortOption == 'Alphabetically') {
+            users.sort((a, b) {
+              final nameA = ((a.data() as Map<String, dynamic>)['firstName'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              final nameB = ((b.data() as Map<String, dynamic>)['firstName'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              return nameA.compareTo(nameB);
+            });
+          } else if (sortOption == 'Friends First') {
+            users.sort((a, b) {
+              final friendsA = (a.data() as Map<String, dynamic>)['friends'] ?? [];
+              final friendsB = (b.data() as Map<String, dynamic>)['friends'] ?? [];
+              final isFriendA = friendsA.contains(currentUserId) ? 0 : 1;
+              final isFriendB = friendsB.contains(currentUserId) ? 0 : 1;
+              if (isFriendA == isFriendB) {
+                final nameA = ((a.data() as Map<String, dynamic>)['firstName'] ?? '')
+                    .toString()
+                    .toLowerCase();
+                final nameB = ((b.data() as Map<String, dynamic>)['firstName'] ?? '')
+                    .toString()
+                    .toLowerCase();
+                return nameA.compareTo(nameB);
+              }
+              return isFriendA.compareTo(isFriendB);
+            });
+          }
+
           return ListView.builder(
             padding: const EdgeInsets.all(16.0),
             itemCount: users.length,
@@ -103,13 +141,20 @@ class _SearchPeoplePageState extends State<SearchPeoplePage> {
               final firstName = user?['firstName'] ?? 'Unknown';
               final lastName = user?['lastName'] ?? 'Unknown';
               final List friends = user?['friends'] ?? [];
+              final profileImagePath = user?['profileImagePath']; // Path to the user's profile image
 
               final isAlreadyFriend = friends.contains(currentUserId);
 
               return Card(
                 color: Colors.deepPurple[700],
                 child: ListTile(
-                  leading: const Icon(Icons.person, color: Colors.white),
+                  leading: profileImagePath != null && File(profileImagePath).existsSync()
+                      ? CircleAvatar(
+                    backgroundImage: FileImage(File(profileImagePath)),
+                  )
+                      : const CircleAvatar(
+                    child: Icon(Icons.person, color: Colors.white),
+                  ),
                   title: Text(
                     '$firstName $lastName',
                     style: const TextStyle(
@@ -136,132 +181,3 @@ class _SearchPeoplePageState extends State<SearchPeoplePage> {
     );
   }
 }
-
-class UserSearchDelegate extends SearchDelegate {
-  final FirebaseFirestore firestore;
-  final String currentUserId;
-  final Function(String, String) onAddFriend;
-
-  UserSearchDelegate({
-    required this.firestore,
-    required this.currentUserId,
-    required this.onAddFriend,
-  });
-
-  @override
-  String get searchFieldLabel => "Search for people...";
-
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      IconButton(
-        icon: const Icon(Icons.clear),
-        onPressed: () {
-          query = '';
-        },
-      ),
-    ];
-  }
-
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () {
-        close(context, null);
-      },
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) {
-    return _buildUserList();
-  }
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    return _buildUserList();
-  }
-
-  Widget _buildUserList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: firestore.collection('users').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (snapshot.hasError) {
-          return Center(
-            child: Text('Error: ${snapshot.error}'),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(
-            child: Text('No users found.'),
-          );
-        }
-
-        final filteredUsers = snapshot.data!.docs.where((doc) {
-          final userId = doc.id;
-          final data = doc.data() as Map<String, dynamic>?;
-          final firstName = data?['firstName']?.toLowerCase() ?? '';
-          final lastName = data?['lastName']?.toLowerCase() ?? '';
-          return userId != currentUserId &&
-              (firstName.contains(query.toLowerCase()) ||
-                  lastName.contains(query.toLowerCase()));
-        }).toList();
-
-        return FutureBuilder<DocumentSnapshot>(
-          future: firestore.collection('users').doc(currentUserId).get(),
-          builder: (context, currentUserSnapshot) {
-            if (currentUserSnapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final currentUserData =
-            currentUserSnapshot.data?.data() as Map<String, dynamic>?;
-
-            final List friends = currentUserData?['friends'] ?? [];
-
-            return ListView.builder(
-              itemCount: filteredUsers.length,
-              itemBuilder: (context, index) {
-                final user = filteredUsers[index].data() as Map<String, dynamic>?;
-                final userId = filteredUsers[index].id;
-                final firstName = user?['firstName'] ?? 'Unknown';
-                final lastName = user?['lastName'] ?? 'Unknown';
-                final isAlreadyFriend = friends.contains(userId);
-
-                return ListTile(
-                  leading: const Icon(Icons.person, color: Colors.white),
-                  title: Text(
-                    '$firstName $lastName',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  subtitle: isAlreadyFriend
-                      ? const Text(
-                    "Already Friends",
-                    style: TextStyle(color: Colors.green),
-                  )
-                      : null,
-                  trailing: isAlreadyFriend
-                      ? const Icon(Icons.check, color: Colors.green)
-                      : IconButton(
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    onPressed: () => onAddFriend(currentUserId, userId),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-}
-

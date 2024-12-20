@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+import 'dart:io'; // Import this to use the File class
+
 
 class Friend {
   final String id;
@@ -125,8 +128,34 @@ class FriendWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       onTap: onTap,
-      leading: const CircleAvatar(
-        child: Icon(Icons.person),
+      leading: FutureBuilder<DocumentSnapshot>(
+        future: FirebaseFirestore.instance.collection('users').doc(friend.id).get(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const CircleAvatar(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
+            return const CircleAvatar(
+              child: Icon(Icons.person),
+            );
+          }
+
+          final data = snapshot.data!.data() as Map<String, dynamic>;
+          final profileImagePath = data['profileImagePath'] as String?;
+
+          if (profileImagePath != null && File(profileImagePath).existsSync()) {
+            return CircleAvatar(
+              backgroundImage: FileImage(File(profileImagePath)),
+            );
+          }
+
+          return const CircleAvatar(
+            child: Icon(Icons.person),
+          );
+        },
       ),
       title: Text(
         '${friend.firstName} ${friend.lastName}',
@@ -149,6 +178,8 @@ class FriendWidget extends StatelessWidget {
     );
   }
 }
+
+
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -210,6 +241,7 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+
 class UserEventListPage extends StatelessWidget {
   final String userId;
   final String userName;
@@ -245,10 +277,32 @@ class UserEventListPage extends StatelessWidget {
             itemCount: events.length,
             itemBuilder: (context, index) {
               final event = events[index];
+
+              // Handle date conversion
+              DateTime eventDate;
+              if (event['date'] is Timestamp) {
+                eventDate = (event['date'] as Timestamp).toDate();
+              } else if (event['date'] is String) {
+                eventDate = DateTime.parse(event['date']);
+              } else {
+                eventDate = DateTime.now(); // Default to now if type is unexpected
+              }
+
+              // Format the date to show only the date part
+              final formattedDate = DateFormat('yyyy-MM-dd').format(eventDate);
+
               return ListTile(
                 leading: const Icon(Icons.event, color: Colors.green),
                 title: Text(event['name']),
-                subtitle: Text(event['date'].toDate().toString()),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Date: $formattedDate"),
+                    Text(
+                      "Location: ${event['location'] ?? 'Location not specified'}",
+                    ),
+                  ],
+                ),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -270,6 +324,7 @@ class UserEventListPage extends StatelessWidget {
     );
   }
 }
+
 
 class EventGiftListPage extends StatelessWidget {
   final String userId;
@@ -312,8 +367,22 @@ class EventGiftListPage extends StatelessWidget {
             itemCount: gifts.length,
             itemBuilder: (context, index) {
               final gift = gifts[index];
+              final String? imagePath = gift['image']; // Path to the image
+
               return ListTile(
-                leading: const Icon(Icons.card_giftcard, color: Colors.purple),
+                leading: imagePath != null && File(imagePath).existsSync()
+                    ? Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    image: DecorationImage(
+                      image: FileImage(File(imagePath)),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                )
+                    : const Icon(Icons.card_giftcard, color: Colors.purple),
                 title: Text(gift['name']),
                 subtitle: Text(
                   gift['status'] ?? 'Not Pledged',
@@ -329,14 +398,15 @@ class EventGiftListPage extends StatelessWidget {
                     final currentUser = FirebaseAuth.instance.currentUser;
 
                     if (currentUser != null) {
-                      final userName = currentUser.displayName ?? currentUser.email ?? 'Unknown User';
-                      firestoreService.pledgeGift(userId, eventId, gift['id'], userName);
+                      final userName =
+                          currentUser.displayName ?? currentUser.email ?? 'Unknown User';
+                      firestoreService.pledgeGift(
+                          userId, eventId, gift['id'], userName);
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Gift pledged successfully!')),
                       );
                     }
                   },
-
                 ),
               );
             },

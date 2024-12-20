@@ -1,29 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Firestore
-import 'package:firebase_auth/firebase_auth.dart'; // Firebase Auth
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
 import 'login_page.dart';
-import 'profile_page.dart'; // Import profile.dart
-import 'main.dart';
+import 'profile_page.dart';
 import 'home_page.dart';
-import 'event_list.dart'; // Import the Event List Page
-import 'gift_page.dart'; // Import the Gift Page
+import 'event_list.dart';
+import 'gift_page.dart';
 import 'search_people.dart';
-
-class WelcomePage extends StatelessWidget {
-  const WelcomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Hediatey',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        brightness: Brightness.dark, // Use dark theme
-      ),
-      home: const HomeScreen(),
-    );
-  }
-}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,46 +18,86 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String firstName = ''; // To store the user's first name
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  String firstName = '';
+  String profileImagePath = ''; // Store local path for the image
+  File? _selectedImage;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    _fetchUserFirstName();
+    _fetchUserData();
   }
 
-  // Fetch the first name of the logged-in user from Firestore
-  Future<void> _fetchUserFirstName() async {
+  Future<void> _fetchUserData() async {
     try {
       final user = _auth.currentUser;
       if (user != null) {
         final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         if (doc.exists) {
           setState(() {
-            firstName = doc.data()?['firstName'] ?? 'User'; // Fallback to 'User' if firstName is null
+            firstName = doc.data()?['firstName'] ?? 'User';
+            profileImagePath = doc.data()?['profileImagePath'] ?? '';
           });
         }
       }
     } catch (e) {
       setState(() {
-        firstName = 'User'; // Fallback in case of an error
+        firstName = 'User';
       });
+    }
+  }
+
+  Future<void> _pickAndSaveImage() async {
+    try {
+      final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImage = File(pickedFile.path);
+        });
+
+        final user = _auth.currentUser;
+
+        if (user != null) {
+          // Save the local path to Firestore
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .update({'profileImagePath': pickedFile.path});
+
+          // Update the state with the new path
+          setState(() {
+            profileImagePath = pickedFile.path;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile picture updated successfully!')),
+          );
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to select image: $e')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.deepPurple[900], // Dark purple background
+      backgroundColor: Colors.deepPurple[900],
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.logout),
-          onPressed: () {
-            Navigator.push(
+          onPressed: () async {
+            await FirebaseAuth.instance.signOut();
+            Navigator.pushAndRemoveUntil(
               context,
-              MaterialPageRoute(builder: (context) => const MyApp()),
-            ); // Go back to the previous screen (login)
+              MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (Route<dynamic> route) => false,
+            );
           },
         ),
         title: const Text('Hediatey'),
@@ -95,6 +120,25 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Profile Picture
+            GestureDetector(
+              onTap: _pickAndSaveImage,
+              child: CircleAvatar(
+                key: ValueKey(profileImagePath), // Force rebuild when path changes
+                radius: 60,
+                backgroundImage: profileImagePath.isNotEmpty
+                    ? FileImage(File(profileImagePath))
+                    : const NetworkImage('https://cdn.pixabay.com/photo/2023/02/18/11/00/icon-7797704_960_720.png') as ImageProvider,
+                child: profileImagePath.isEmpty
+                    ? const Icon(Icons.camera_alt, color: Colors.white)
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Tap to change profile picture',
+              style: TextStyle(color: Colors.white, fontSize: 14),
+            ),
             const SizedBox(height: 20),
 
             // Welcome Message
@@ -103,11 +147,12 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Colors.white, // White text
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 20),
 
+            // Search for People Button
             TextButton.icon(
               onPressed: () {
                 Navigator.push(
@@ -122,19 +167,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(30),
                 ),
               ),
-              icon: const Icon(
-                Icons.search,
-                color: Colors.white,
-              ),
+              icon: const Icon(Icons.search, color: Colors.white),
               label: const Text(
                 'Search for People',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                ),
+                style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             ),
-
             const SizedBox(height: 20),
 
             // Friends List Button
@@ -146,22 +184,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
               style: TextButton.styleFrom(
-                backgroundColor: Colors.deepPurple[700], // Button background color
+                backgroundColor: Colors.deepPurple[700],
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
               ),
-              icon: const Icon(
-                Icons.person,
-                color: Colors.white,
-              ),
+              icon: const Icon(Icons.person, color: Colors.white),
               label: const Text(
                 'Friends List',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                ),
+                style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             ),
             const SizedBox(height: 20),
@@ -175,22 +207,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
               style: TextButton.styleFrom(
-                backgroundColor: Colors.deepPurple[700], // Button background color
+                backgroundColor: Colors.deepPurple[700],
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
               ),
-              icon: const Icon(
-                Icons.event,
-                color: Colors.white,
-              ),
+              icon: const Icon(Icons.event, color: Colors.white),
               label: const Text(
                 'Your Event List',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                ),
+                style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             ),
             const SizedBox(height: 20),
@@ -204,22 +230,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
               style: TextButton.styleFrom(
-                backgroundColor: Colors.deepPurple[700], // Button background color
+                backgroundColor: Colors.deepPurple[700],
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
               ),
-              icon: const Icon(
-                Icons.card_giftcard,
-                color: Colors.white,
-              ),
+              icon: const Icon(Icons.card_giftcard, color: Colors.white),
               label: const Text(
                 'Your Gift List',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                ),
+                style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             ),
           ],

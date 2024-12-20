@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:projectmp/login_page.dart';
 import 'update_profile.dart';
 import 'mypledgedgifts.dart';
 import 'main.dart'; // Import MyApp for logout navigation
@@ -207,7 +208,7 @@ class ProfilePage extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => PledgedGiftsPage()),
+                MaterialPageRoute(builder: (context) => GiftsPledgedToMePage()),
               );
             },
           ),
@@ -223,9 +224,10 @@ class ProfilePage extends StatelessWidget {
             ),
             onTap: () async {
               await FirebaseAuth.instance.signOut();
-              Navigator.pushReplacement(
+              Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (context) => const MyApp()),
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (Route<dynamic> route) => false, // Remove all previous routes
               );
             },
           ),

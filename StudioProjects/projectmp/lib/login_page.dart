@@ -3,63 +3,77 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'welcome_page.dart'; // Import the WelcomePage
 import 'signup_page.dart'; // Import the SignUpPage
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final TextEditingController emailController = TextEditingController();
-    final TextEditingController passwordController = TextEditingController();
+  State<LoginScreen> createState() => _LoginScreenState();
+}
 
-    Future<void> _login() async {
-      final email = emailController.text.trim();
-      final password = passwordController.text.trim();
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  bool isLoading = false; // State variable to track loading status
 
-      if (email.isEmpty || password.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Email and Password cannot be empty')),
-        );
-        return;
-      }
+  Future<void> _login() async {
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
 
-      try {
-        // Firebase authentication for login
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-
-        // Navigate to WelcomePage on successful login
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login Successful!')),
-        );
-        emailController.clear();
-        passwordController.clear();
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomePage()),
-        );
-      } catch (e) {
-        String errorMessage = 'Login Failed. Please try again.';
-        if (e is FirebaseAuthException) {
-          if (e.code == 'user-not-found') {
-            errorMessage = 'No user found with this email.';
-          } else if (e.code == 'wrong-password') {
-            errorMessage = 'Incorrect password. Please try again.';
-          } else if (e.code == 'invalid-email') {
-            errorMessage = 'The email provided is invalid.';
-          }
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage)),
-        );
-      }
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Email and Password cannot be empty')),
+      );
+      return;
     }
 
+    setState(() {
+      isLoading = true; // Show loading indicator
+    });
+
+    try {
+      // Firebase authentication for login
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // Navigate to WelcomePage on successful login
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Login Successful!')),
+      );
+      emailController.clear();
+      passwordController.clear();
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    } catch (e) {
+      String errorMessage = 'Incorrect email or password.';
+      if (e is FirebaseAuthException) {
+        if (e.code == 'user-not-found') {
+          errorMessage = 'No user found with this email.';
+        } else if (e.code == 'wrong-password') {
+          errorMessage = 'Incorrect password. Please try again.';
+        } else if (e.code == 'invalid-email') {
+          errorMessage = 'The email provided is invalid.';
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    } finally {
+      setState(() {
+        isLoading = false; // Hide loading indicator
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.deepPurple[900], // Dark purple background
       appBar: AppBar(
-        title: const Text('Login'),
+        title: const Text('Hediatey'),
         backgroundColor: Colors.deepPurple[800],
         centerTitle: true,
       ),
@@ -123,8 +137,10 @@ class LoginScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
 
-            // Login and Sign Up Buttons
-            Row(
+            // Loading or Buttons
+            isLoading
+                ? const CircularProgressIndicator() // Show loading indicator
+                : Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 ElevatedButton(

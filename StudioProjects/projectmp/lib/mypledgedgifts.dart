@@ -6,14 +6,19 @@ class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Get current user ID
+  // Get the currently logged-in user's ID
   String? get userId => _auth.currentUser?.uid;
 
-  // Fetch pledged gifts by the logged-in user
-  Stream<List<Map<String, dynamic>>> getPledgedGiftsByUser() async* {
+  // Fetch pledged gifts for the logged-in user's events
+  Stream<List<Map<String, dynamic>>> getGiftsPledgedToCurrentUser() async* {
     if (userId == null) throw Exception("User not logged in");
 
-    yield* _firestore.collection('users').doc(userId).collection('events').snapshots().asyncMap((eventSnapshots) async {
+    yield* _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('events')
+        .snapshots()
+        .asyncMap((eventSnapshots) async {
       List<Map<String, dynamic>> pledgedGifts = [];
 
       for (var eventDoc in eventSnapshots.docs) {
@@ -26,15 +31,13 @@ class FirestoreService {
             .collection('events')
             .doc(eventId)
             .collection('gifts')
-            .where('pledgedBy', isEqualTo: userId) // Filter by logged-in user's ID
-            .where('status', isEqualTo: 'Pledged') // Filter by pledged status
+            .where('status', isEqualTo: 'Pledged') // Fetch only pledged gifts
             .get();
 
         for (var giftDoc in giftSnapshots.docs) {
           pledgedGifts.add({
-            'name': giftDoc.data()['name'],
-            'event': eventName,
-            'status': giftDoc.data()['status'],
+            'name': giftDoc.data()['name'], // Gift name
+            'event': eventName, // Associated event name
           });
         }
       }
@@ -44,59 +47,67 @@ class FirestoreService {
   }
 }
 
-class PledgedGiftsPage extends StatelessWidget {
-  const PledgedGiftsPage({Key? key}) : super(key: key);
+class GiftsPledgedToMePage extends StatelessWidget {
+  final FirestoreService _firestoreService = FirestoreService();
+
+  GiftsPledgedToMePage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final pledgedGiftsRef = FirebaseFirestore.instance.collection('pledged_gifts');
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pledged Gifts'),
+        title: const Text('Gifts Pledged to Me'),
         backgroundColor: Colors.deepPurple[800],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: pledgedGiftsRef.snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _firestoreService.getGiftsPledgedToCurrentUser(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
+            return Center(
+              child: Text(
+                "Error: ${snapshot.error}",
+                style: const TextStyle(color: Colors.white),
+              ),
+            );
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(
               child: Text(
-                "No pledged gifts found.",
-                style: TextStyle(color: Colors.white),
+                "No gifts pledged to you yet.",
+                style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             );
           }
 
-          final gifts = snapshot.data!.docs;
+          final pledgedGifts = snapshot.data!;
 
           return ListView.builder(
-            itemCount: gifts.length,
+            itemCount: pledgedGifts.length,
             itemBuilder: (context, index) {
-              final gift = gifts[index];
-
+              final gift = pledgedGifts[index];
               return ListTile(
                 leading: const Icon(Icons.card_giftcard, color: Colors.green),
                 title: Text(
-                  gift['name'], // Display only the gift's name
+                  gift['name'],
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
                 ),
+                subtitle: Text(
+                  "Event: ${gift['event']}",
+                  style: const TextStyle(color: Colors.grey),
+                ),
               );
             },
           );
         },
       ),
-      backgroundColor: Colors.deepPurple[900], // Background color
+      backgroundColor: Colors.deepPurple[900],
     );
   }
 }

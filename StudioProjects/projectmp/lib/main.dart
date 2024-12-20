@@ -1,14 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:overlay_support/overlay_support.dart';
 import 'login_page.dart';
 import 'database_helper.dart';
+
+// Handles background messages
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  print("Background Message received: ${message.notification?.title}, ${message.notification?.body}");
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDatabase();
   await Firebase.initializeApp();
+
+  // Set up background message handler
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Print the FCM token
   await printFCMToken();
+
   runApp(const MyApp());
 }
 
@@ -20,12 +32,19 @@ Future<void> initializeDatabase() async {
 
 Future<void> printFCMToken() async {
   try {
-    // Request permissions (only necessary on iOS)
     FirebaseMessaging messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission();
 
-    // Fetch and print the token
-    String? token = await FirebaseMessaging.instance.getToken();
+    // Request notification permissions
+    NotificationSettings settings = await messaging.requestPermission();
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print('User granted notification permission.');
+    } else if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      print('User denied notification permission.');
+    }
+
+    // Fetch and print the FCM token
+    String? token = await messaging.getToken();
     if (token != null) {
       print('FCM Token: $token');
     } else {
@@ -41,10 +60,57 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData.dark(),
-      home: const LoginScreen(),
+    return OverlaySupport.global(
+      child: MaterialApp(
+        title: 'Flutter Demo',
+        theme: ThemeData.dark(),
+        home: const NotificationHandler(child: LoginScreen()),
+      ),
     );
+  }
+}
+
+// Widget to handle FCM notifications
+class NotificationHandler extends StatefulWidget {
+  final Widget child;
+
+  const NotificationHandler({super.key, required this.child});
+
+  @override
+  _NotificationHandlerState createState() => _NotificationHandlerState();
+}
+
+class _NotificationHandlerState extends State<NotificationHandler> {
+  @override
+  void initState() {
+    super.initState();
+
+    // Handle foreground notifications
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      showSimpleNotification(
+        Text(
+          message.notification?.title ?? "No Title",
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        subtitle: Text(
+          message.notification?.body ?? "No Body",
+          style: const TextStyle(color: Colors.white70),
+        ),
+        background: Colors.blue,
+        duration: const Duration(seconds: 4),
+      );
+
+      print("Foreground Message received: ${message.notification?.title}, ${message.notification?.body}");
+    });
+
+    // Handle notification tap while app is in the background
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print("Notification tapped: ${message.notification?.title}, ${message.notification?.body}");
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

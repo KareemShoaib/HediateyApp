@@ -9,7 +9,7 @@ class DatabaseHelper {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('hedieaty3.0.db');
+    _database = await _initDB('hedieaty4.0.db');
     return _database!;
   }
 
@@ -17,11 +17,11 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(path, version: 2, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future<void> _createDB(Database db, int version) async {
-    // Create Users table with first name, last name, email, and password
+    // Create Users table
     await db.execute('''
       CREATE TABLE Users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,20 +38,30 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         date TEXT,
+        location TEXT,
         user_id INTEGER,
         FOREIGN KEY (user_id) REFERENCES Users (id)
       );
     ''');
 
-    // Create Gifts table
+    // Create Gifts table with an image column
     await db.execute('''
       CREATE TABLE Gifts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
+        image TEXT, -- This will store the image path or base64 string
         event_id INTEGER,
         FOREIGN KEY (event_id) REFERENCES Events (id)
       );
     ''');
+  }
+
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add the image column to the Gifts table
+      await db.execute('ALTER TABLE Gifts ADD COLUMN image TEXT');
+      print('Database upgraded to version $newVersion: Added "image" column to Gifts table.');
+    }
   }
 
   Future<void> dropAllTables() async {
@@ -75,7 +85,6 @@ class DatabaseHelper {
       return -1; // Indicate failure
     }
   }
-
 
   Future<List<Map<String, dynamic>>> query(String table,
       {String? where, List<dynamic>? whereArgs}) async {
